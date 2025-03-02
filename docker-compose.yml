@@ -9,14 +9,15 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.nginxappflowy.entrypoints=websecure"
-      - "traefik.http.routers.nginxappflowy.rule=Host(`appflowy.tuda.freeddns.org`)"
+      - "traefik.http.routers.nginxappflowy.rule=Host(`appflowy.mr4x2.com`)"
       - "traefik.http.routers.nginxappflowy.service=nginxappflowy"
       - "traefik.http.services.nginxappflowy.loadbalancer.server.port=80"
-      - "traefik.docker.network=traefik_default"
+      - "traefik.docker.network=traefik_cloudflare"
       - "traefik.http.routers.nginxappflowy.tls=true"
       - "traefik.http.routers.nginxappflowy.tls.certresolver=production"
     networks:
-      - traefik_default
+      - traefik_cloudflare
+
   postgres:
     restart: on-failure
     image: pgvector/pgvector:pg16
@@ -35,27 +36,24 @@ services:
       - ./migrations/before:/docker-entrypoint-initdb.d
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - traefik_default
+      - traefik_cloudflare
 
   redis:
     restart: on-failure
     image: redis
     networks:
-      - traefik_default
+      - traefik_cloudflare
 
   gotrue:
     restart: on-failure
+    build:
+      context: docker/gotrue
+      dockerfile: Dockerfile
     image: appflowyinc/gotrue:${GOTRUE_VERSION:-latest}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: "curl --fail http://127.0.0.1:9999/health || exit 1"
-      interval: 5s
-      timeout: 5s
-      retries: 12
     networks:
-      - traefik_default
+      - traefik_cloudflare
+    depends_on:
+      - postgres
     environment:
       # There are a lot of options to configure GoTrue. You can reference the example config:
       # https://github.com/supabase/gotrue/blob/master/example.env
@@ -131,20 +129,23 @@ services:
       dockerfile: Dockerfile
       args:
         FEATURES: ""
-    image: appflowyinc/appflowy_cloud:${APPFLOWY_CLOUD_VERSION:-latest}
+    image: mr4x2/appflowy_cloud
     networks:
-      - traefik_default
+      - traefik_cloudflare
 
   admin_frontend:
     restart: on-failure
-    image: appflowyinc/admin_frontend:${APPFLOWY_ADMIN_FRONTEND_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: ./admin_frontend/Dockerfile
+    image: mr4x2/admin_frontend
     environment:
       - RUST_LOG=${RUST_LOG:-info}
       - ADMIN_FRONTEND_REDIS_URL=${ADMIN_FRONTEND_REDIS_URL:-redis://redis:6379}
       - ADMIN_FRONTEND_GOTRUE_URL=${ADMIN_FRONTEND_GOTRUE_URL:-http://gotrue:9999}
       - ADMIN_FRONTEND_APPFLOWY_CLOUD_URL=${ADMIN_FRONTEND_APPFLOWY_CLOUD_URL:-http://appflowy_cloud:8000}
     networks:
-      - traefik_default
+      - traefik_cloudflare
 
   ai:
     restart: on-failure
@@ -155,11 +156,14 @@ services:
       - APPFLOWY_AI_DATABASE_URL=${APPFLOWY_AI_DATABASE_URL}
       - APPFLOWY_AI_REDIS_URL=${APPFLOWY_AI_REDIS_URL}
     networks:
-      - traefik_default
+      - traefik_cloudflare
 
   appflowy_worker:
     restart: on-failure
-    image: appflowyinc/appflowy_worker:${APPFLOWY_WORKER_VERSION:-latest}
+    image: mr4x2/appflowy_worker
+    build:
+      context: .
+      dockerfile: ./services/appflowy-worker/Dockerfile
     environment:
       - RUST_LOG=${RUST_LOG:-info}
       - APPFLOWY_ENVIRONMENT=production
@@ -177,10 +181,10 @@ services:
       - APPFLOWY_MAILER_SMTP_USERNAME=${APPFLOWY_MAILER_SMTP_USERNAME}
       - APPFLOWY_MAILER_SMTP_PASSWORD=${APPFLOWY_MAILER_SMTP_PASSWORD}
     networks:
-      - traefik_default
+      - traefik_cloudflare
 volumes:
   postgres_data:
   minio_data:
 networks:
-  traefik_default:
+  traefik_cloudflare:
     external: true
